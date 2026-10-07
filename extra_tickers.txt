@@ -1,0 +1,19 @@
+# Add any extra stocks to scan, one per line, in Yahoo Finance format.
+# US stocks: just the ticker (PLTR). UK stocks: add .L (RR.L).
+# Anything you track as a position should be listed here if it isn't
+# in the S&P 500, Nasdaq 100, FTSE 100 or FTSE 250.
+
+# Nasdaq-100 members that aren't in the S&P 500
+ASML
+ARM
+PDD
+MELI
+SHOP
+MRVL
+TEAM
+ZS
+MDB
+CCEP
+GFS
+TRI
+MSTR

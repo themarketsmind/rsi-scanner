@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RSI 50 Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one column workbench. Summary grid (timeframe x setup) on top, then a scannable list
+   where every stock shows its daily / weekly / monthly RSI side by side. Positions live on a second tab. */
+:root {
+  --bg: #eef1f4;
+  --surface: #ffffff;
+  --sunk: #e3e8ee;
+  --line: #d2d9e1;
+  --fg: #16202b;
+  --muted: #5b6878;
+  --accent: #2459d6;          /* the 50 line */
+  --accent-soft: #dce6fb;
+  --band: rgba(36, 89, 214, .10);
+  --tap: #6b5bd2;   --tap-bg: #ebe8fb;
+  --bounce: #0f8a7a; --bounce-bg: #dcf3ef;
+  --reclaim: #c26a0a; --reclaim-bg: #fbecd8;
+  --good: #11804a;  --good-bg: #dcf3e6;
+  --bad: #c0362c;   --bad-bg: #fbe2df;
+  --warn: #9a6a00;  --warn-bg: #fbf0d0;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f151c; --surface: #17202a; --sunk: #1e2935; --line: #2a3644;
+    --fg: #e4eaf1; --muted: #8d9bab; --accent: #6f9bff; --accent-soft: #1f2f52;
+    --band: rgba(111, 155, 255, .12);
+    --tap: #a99cff; --tap-bg: #2a2550; --bounce: #45d0bc; --bounce-bg: #123b36;
+    --reclaim: #f0a24b; --reclaim-bg: #43300f; --good: #4fd18a; --good-bg: #133a26;
+    --bad: #ff7b70; --bad-bg: #45201d; --warn: #f2c14e; --warn-bg: #3d3212;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f151c; --surface: #17202a; --sunk: #1e2935; --line: #2a3644;
+  --fg: #e4eaf1; --muted: #8d9bab; --accent: #6f9bff; --accent-soft: #1f2f52;
+  --band: rgba(111, 155, 255, .12);
+  --tap: #a99cff; --tap-bg: #2a2550; --bounce: #45d0bc; --bounce-bg: #123b36;
+  --reclaim: #f0a24b; --reclaim-bg: #43300f; --good: #4fd18a; --good-bg: #133a26;
+  --bad: #ff7b70; --bad-bg: #45201d; --warn: #f2c14e; --warn-bg: #3d3212;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 var(--body); }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 60px; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+header.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; margin-bottom: 18px; }
+h1 { font-family: var(--display); font-weight: 800; font-size: clamp(1.6rem, 5vw, 2.2rem); line-height: 1; margin: 0; letter-spacing: -.02em; }
+h1 b { color: var(--accent); font-weight: 800; }
+.meta { color: var(--muted); font-size: .85rem; }
+.demo { background: var(--warn-bg); color: var(--warn); font-weight: 600; font-size: .75rem; padding: 2px 8px; border-radius: 99px; letter-spacing: .04em; text-transform: uppercase; }
+
+.tabs { display: flex; gap: 4px; background: var(--sunk); padding: 4px; border-radius: 12px; width: fit-content; margin-bottom: 18px; }
+.tabs button { border: 0; background: none; padding: 8px 16px; border-radius: 9px; cursor: pointer; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.tabs button[aria-selected="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.badge { background: var(--bad); color: #fff; border-radius: 99px; font-size: .72rem; padding: 0 7px; line-height: 1.5; }
+
+/* summary grid */
+.grid { display: grid; grid-template-columns: auto repeat(3, 1fr); gap: 4px; margin-bottom: 16px; }
+.grid .h { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding: 4px 6px; align-self: end; }
+.grid .rowh { font-family: var(--display); font-weight: 600; padding: 0 10px 0 2px; align-self: center; font-size: .95rem; }
+.cell { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 10px; cursor: pointer; text-align: left; display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.cell b { font-family: var(--mono); font-size: 1.15rem; font-weight: 600; }
+.cell span { font-size: .72rem; color: var(--muted); }
+.cell[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.cell.TAP b { color: var(--tap); } .cell.BOUNCE b { color: var(--bounce); } .cell.RECLAIM b { color: var(--reclaim); }
+
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.filters input[type="search"] { flex: 1 1 180px; min-width: 0; }
+.field { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 10px; }
+label.chk { display: flex; align-items: center; gap: 6px; font-size: .88rem; color: var(--muted); cursor: pointer; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 14px; cursor: pointer; font-weight: 600; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.small { padding: 4px 10px; font-size: .82rem; }
+.btn.ghost { background: none; }
+.count { color: var(--muted); font-size: .85rem; margin: 4px 0 10px; }
+
+/* stock rows */
+.list { display: flex; flex-direction: column; gap: 6px; }
+.row { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)) auto; gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; }
+.who { min-width: 0; }
+.who .t { font-family: var(--mono); font-weight: 600; }
+.who .n { color: var(--muted); font-size: .82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.who .p { font-size: .82rem; }
+.up { color: var(--good); } .down { color: var(--bad); }
+.tf { min-width: 0; border-radius: 8px; padding: 6px 8px; background: var(--sunk); }
+.tf .lab { font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); display: flex; justify-content: space-between; gap: 4px; }
+@media (max-width: 640px) { .tfl { font-size: 0; } .tfl::after { content: attr(data-s); font-size: .68rem; } }
+.tf .v { font-family: var(--mono); font-size: 1rem; font-weight: 600; }
+.tf .v small { font-size: .75rem; color: var(--muted); font-weight: 400; }
+.tf.TAP { background: var(--tap-bg); } .tf.TAP .sig { color: var(--tap); }
+.tf.BOUNCE { background: var(--bounce-bg); } .tf.BOUNCE .sig { color: var(--bounce); }
+.tf.RECLAIM { background: var(--reclaim-bg); } .tf.RECLAIM .sig { color: var(--reclaim); }
+.sig { font-weight: 700; }
+.spark { display: block; width: 100%; height: 26px; margin-top: 2px; }
+.more { margin: 14px auto 0; display: block; }
+.empty { text-align: center; color: var(--muted); padding: 40px 10px; border: 1px dashed var(--line); border-radius: var(--r); }
+
+@media (max-width: 640px) {
+  .row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .who { grid-column: 1 / 3; }
+  .row .act { grid-column: 3; grid-row: 1; justify-self: end; }
+  .grid .rowh { font-size: .82rem; padding-right: 4px; }
+  .cell { flex-direction: column; gap: 0; padding: 6px 8px; }
+}
+
+/* positions */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; margin-bottom: 16px; }
+.panel h2 { font-family: var(--display); font-size: 1.15rem; margin: 0 0 12px; font-weight: 600; }
+.form { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.form label { display: flex; flex-direction: column; gap: 4px; font-size: .78rem; color: var(--muted); font-weight: 500; min-width: 0; }
+.form .field { width: 100%; }
+.form .acts { display: flex; gap: 8px; align-items: end; }
+.hint { font-size: .8rem; color: var(--muted); margin: 10px 0 0; }
+.rules { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: .82rem; color: var(--muted); margin-bottom: 14px; }
+.rules span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: currentColor; vertical-align: 1px; }
+.rules .g { color: var(--good); } .rules .b { color: var(--bad); } .rules .h { color: var(--accent); }
+
+.pos { display: grid; grid-template-columns: 6px 1fr; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; margin-bottom: 8px; }
+.pos .stripe { background: var(--accent); }
+.pos.TP .stripe { background: var(--good); } .pos.SL .stripe { background: var(--bad); } .pos.NA .stripe { background: var(--muted); }
+.pos .body { padding: 12px 14px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 12px; align-items: center; }
+.pill { display: inline-block; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; padding: 3px 9px; border-radius: 99px; }
+.pill.TP { background: var(--good-bg); color: var(--good); }
+.pill.SL { background: var(--bad-bg); color: var(--bad); }
+.pill.HOLD { background: var(--accent-soft); color: var(--accent); }
+.pill.NA { background: var(--sunk); color: var(--muted); }
+.k { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.gauge { position: relative; height: 10px; border-radius: 99px; background: var(--sunk); margin: 6px 0 2px; }
+.gauge .z50 { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; background: var(--accent); }
+.gauge .ztp { position: absolute; left: 70%; width: 5%; top: 0; bottom: 0; background: var(--good-bg); border-left: 1px solid var(--good); border-right: 1px solid var(--good); }
+.gauge .dot { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%; background: var(--fg); border: 2px solid var(--surface); transform: translate(-50%, -50%); }
+.gscale { position: relative; height: 1.1em; font-size: .66rem; color: var(--muted); font-family: var(--mono); }
+.gscale span { position: absolute; transform: translateX(-50%); }
+.gscale span:first-child { transform: none; } .gscale span:last-child { transform: translateX(-100%); }
+.del { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 700px) {
+  .pos .body { grid-template-columns: 1fr 1fr; }
+  .pos .gcol { grid-column: 1 / -1; }
+  .pos .del { grid-column: 1 / -1; justify-content: flex-start; }
+}
+.totals { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-bottom: 12px; padding: 4px 2px; }
+.big { font-size: 1.25rem; font-weight: 600; }
+.mkthead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 10px; margin-bottom: 10px; }
+.mktnum { font-size: 2.6rem; font-weight: 600; line-height: 1.05; }
+.mkthead .meta { margin-top: 4px; }
+.pill.CALM { background: var(--good-bg); color: var(--good); }
+.pill.STRESS { background: var(--warn-bg); color: var(--warn); }
+.pill.EVENT { background: var(--bad-bg); color: var(--bad); }
+.pill.REVERSAL { background: var(--good-bg); color: var(--good); }
+.pill.FLUSHING { background: var(--bad-bg); color: var(--bad); }
+.chartbox svg { display: block; width: 100%; height: auto; }
+.chartbox text { font-family: var(--mono); font-size: 10px; fill: var(--muted); }
+.sh { font-family: var(--display); font-weight: 600; font-size: 1.2rem; margin: 26px 0 2px; }
+.sh + .meta { margin: 0 0 12px; }
+.wrow { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(4, minmax(0, .8fr)) auto; gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; }
+.wrow .trig { grid-column: 1 / -1; font-size: .82rem; color: var(--good); margin-top: -4px; }
+.stat .v { font-family: var(--mono); font-weight: 600; }
+@media (max-width: 640px) { .wrow { grid-template-columns: repeat(4, minmax(0, 1fr)); } .wrow .who { grid-column: 1 / 4; } .wrow .act { grid-column: 4; grid-row: 1; justify-self: end; } }
+.tabs.seg { margin-bottom: 12px; }
+.tabs.seg button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.lev { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 2px 0 12px; font-size: .88rem; }
+.lev b { font-family: var(--mono); font-weight: 600; }
+.wrow.c { grid-template-columns: minmax(0, 1.3fr) repeat(6, minmax(0, .7fr)) auto; }
+@media (max-width: 640px) { .wrow.c { grid-template-columns: repeat(3, minmax(0, 1fr)); } .wrow.c .who { grid-column: 1 / 3; } .wrow.c .act { grid-column: 3; } }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+table.ev { border-collapse: collapse; width: 100%; font-size: .88rem; min-width: 520px; }
+table.ev th { text-align: right; font-size: .7rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+table.ev td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+table.ev th:first-child, table.ev td:first-child { text-align: left; }
+table.ev tr:last-child td { border-bottom: 0; }
+textarea.field { width: 100%; min-height: 90px; font-family: var(--mono); font-size: .8rem; }
+details summary { cursor: pointer; font-weight: 600; }
+details[open] summary { margin-bottom: 10px; }
+.legend { font-size: .82rem; color: var(--muted); margin-top: 22px; line-height: 1.6; }
+.legend b { color: var(--fg); }
+@media (prefers-reduced-motion: no-preference) { .row, .pos { transition: border-color .15s; } .row:hover { border-color: var(--accent); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>RSI <b>50</b> Scanner</h1>
+      <div class="meta" id="meta">Loading scan…</div>
+    </div>
+    <span class="demo" id="demoTag" hidden>Demo data</span>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tabScan" aria-selected="true">Scanner</button>
+    <button role="tab" id="tabWash" aria-selected="false">Washouts <span class="badge" id="washBadge" hidden>0</span></button>
+    <button role="tab" id="tabPos" aria-selected="false">Positions <span class="badge" id="alertBadge" hidden>0</span></button>
+  </div>
+
+  <!-- SCANNER -->
+  <section id="viewScan">
+    <div class="grid" id="summary"></div>
+    <div class="filters">
+      <input type="search" id="q" class="field" placeholder="Search ticker or company">
+      <select id="fMarket" class="field" aria-label="Market">
+        <option value="">All markets</option><option value="US">US</option><option value="UK">UK</option><option value="CRYPTO">Crypto</option>
+      </select>
+      <select id="fSort" class="field" aria-label="Sort">
+        <option value="conf">Most timeframes first</option>
+        <option value="rsiD">Daily RSI</option><option value="rsiW">Weekly RSI</option><option value="rsiM">Monthly RSI</option>
+        <option value="chg">Today's move</option><option value="az">A–Z</option>
+      </select>
+      <label class="chk"><input type="checkbox" id="fMulti"> 2+ timeframes</label>
+      <label class="chk"><input type="checkbox" id="fIlliquid"> Include illiquid</label>
+    </div>
+    <div class="count" id="count"></div>
+    <div class="list" id="list"></div>
+    <button class="btn more" id="more" hidden>Show more</button>
+    <div class="legend">
+      <b>Tap</b>: RSI sitting on the 50 line (48–52). Arrow shows which way it's moving.<br>
+      <b>Bounce</b>: RSI came down to about 50 recently, held, and is now rising into 55–60.<br>
+      <b>Reclaim</b>: RSI was below 45 recently and has just crossed back above 50.<br>
+      Weekly and monthly use closed candles only (stock weeks close Friday, crypto weeks close Sunday UTC). RSI period 14.
+    </div>
+  </section>
+
+  <!-- WASHOUTS -->
+  <section id="viewWash" hidden>
+    <div class="tabs seg" role="group" aria-label="Market">
+      <button id="wStocks" aria-pressed="true">Stocks</button>
+      <button id="wCrypto" aria-pressed="false">Crypto</button>
+    </div>
+    <div class="panel mkt">
+      <div class="mkthead">
+        <div><div class="k" id="mLabel">Stocks with daily RSI under 30</div><div class="mktnum num" id="mNow">–</div></div>
+        <div><span class="pill" id="mState">–</span><div class="meta" id="mSub"></div></div>
+      </div>
+      <div class="lev" id="mLev" hidden></div>
+      <div class="chartbox" id="mChart"></div>
+      <div class="meta" id="mNote"></div>
+    </div>
+
+    <h2 class="sh" id="wHead">Stocks flushing now</h2>
+    <p class="meta" id="washRule"></p>
+    <div class="list" id="washList"></div>
+
+    <h2 class="sh" id="evHead">Past market washouts</h2>
+    <p class="meta" id="evNote"></p>
+    <div class="tablewrap"><table class="ev" id="evTable"></table></div>
+  </section>
+
+  <!-- POSITIONS -->
+  <section id="viewPos" hidden>
+    <div class="panel">
+      <h2 id="formTitle">Add a position</h2>
+      <form class="form" id="posForm" autocomplete="off">
+        <label>Ticker<input class="field" id="pTicker" list="tickers" required placeholder="e.g. NVDA, RR.L, BTC-USD"></label>
+        <label>Signal timeframe<select class="field" id="pTf"><option value="D">Daily</option><option value="W">Weekly</option><option value="M">Monthly</option></select></label>
+        <label>Entry price<input class="field num" id="pEntry" type="number" step="any" min="0" required></label>
+        <label>Shares / coins<input class="field num" id="pQty" type="number" step="any" min="0" required></label>
+        <label>Entry date<input class="field" id="pDate" type="date"></label>
+        <label id="fxWrap">GBP/USD at entry<input class="field num" id="pFx" type="number" step="any" min="0" placeholder="today's rate"></label>
+        <div class="acts"><button class="btn primary" type="submit" id="pSave">Track</button><button class="btn ghost" type="button" id="pCancel" hidden>Cancel</button></div>
+      </form>
+      <datalist id="tickers"></datalist>
+      <p class="hint">Enter the entry price as the asset is priced: US stocks and crypto in dollars, UK stocks in pence (e.g. 1050 for £10.50). Profit and loss is shown in pounds. For US stocks and crypto, put the GBP/USD rate from your broker's trade confirmation (it fills in today's rate for you) so currency moves are counted.</p>
+    </div>
+
+    <div class="rules">
+      <span class="g">Take profit: RSI reaches 70–75 on the signal timeframe</span>
+      <span class="b">Accept loss: RSI drops below 50</span>
+      <span class="h">Holding: between the two</span>
+    </div>
+    <div id="positions"></div>
+
+    <details class="panel">
+      <summary>Back up or move your positions</summary>
+      <p class="hint" style="margin-top:0">Positions are saved in this browser only. Copy this text to back them up or move them to another device, then paste it into the box on the other device and press Import.</p>
+      <textarea class="field" id="ioText" spellcheck="false" aria-label="Positions backup"></textarea>
+      <div class="filters" style="margin-top:8px">
+        <button class="btn small" id="copyBtn" type="button">Copy</button>
+        <button class="btn small" id="importBtn" type="button">Import</button>
+        <span class="meta" id="ioMsg"></span>
+      </div>
+    </details>
+  </section>
+</div>
+
+<script id="embedded-data"></script>
+<script>
+(() => {
+  const TF = ["D", "W", "M"], TFN = { D: "Daily", W: "Weekly", M: "Monthly" };
+  const SIG = ["TAP", "BOUNCE", "RECLAIM"], SIGN = { TAP: "Tap", BOUNCE: "Bounce", RECLAIM: "Reclaim" };
+  const KEY = "rsi50.positions.v1";
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  let DATA = null, pick = { tf: null, sig: null }, shown = 150, editing = null;
+
+  // ---------- storage ----------
+  function loadPos() { try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; } }
+  function savePos(p) { try { localStorage.setItem(KEY, JSON.stringify(p)); } catch {} }
+  let positions = loadPos();
+
+  // ---------- helpers ----------
+  const ccyOf = t => DATA?.assets?.[t]?.ccy || (t.endsWith(".L") ? "GBp" : "USD");
+  const isUK = t => ccyOf(t) === "GBp";
+  const needsFx = t => ccyOf(t) === "USD";
+  const isCrypto = t => t.endsWith("-USD");
+  const mkType = a => a.type === "crypto" ? "CRYPTO" : a.type === "uk" ? "UK" : "US";
+  const fmtPx = (v, t) => v == null ? "–" : isUK(t) ? `${(+v).toLocaleString("en-GB", { maximumFractionDigits: 2 })}p`
+    : ccyOf(t) === "GBP" ? `£${(+v).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : +v >= 1 ? `$${(+v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : `$${(+v).toLocaleString("en-US", { maximumSignificantDigits: 4 })}`;
+  const gbp = v => { if (v == null || isNaN(v)) return "–"; const s = v < 0 ? "−" : "+";
+    return `${s}£${Math.abs(v).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; };
+  const usd = v => `${v < 0 ? "−" : "+"}$${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fxRate = () => DATA?.fx?.GBPUSD || null;
+  // profit/loss in pounds: UK prices are pence, US prices are dollars converted at today's rate
+  // current value at today's rate minus what it cost at the entry rate, so currency moves are included
+  const pnlGBP = p => { const px = DATA?.assets?.[p.ticker]?.price; if (px == null) return null;
+    if (isUK(p.ticker)) return (px - p.entry) * p.qty / 100;
+    if (ccyOf(p.ticker) === "GBP") return (px - p.entry) * p.qty;
+    const now = fxRate(), then = p.fx || now; return now ? px * p.qty / now - p.entry * p.qty / then : null; };
+  const toGBP = (amt, t) => amt == null ? null : isUK(t) ? amt / 100 : ccyOf(t) === "GBP" ? amt : fxRate() ? amt / fxRate() : null;
+  const arrow = (now, prev) => prev == null ? "" : now > prev ? "▲" : now < prev ? "▼" : "•";
+
+  function spark(hist) {
+    const h = (hist || []).filter(v => v != null);
+    if (h.length < 2) return "";
+    const W = 100, H = 26, lo = 20, hi = 80;
+    const y = v => H - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * H;
+    const x = i => i / (h.length - 1) * W;
+    const pts = h.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+      <rect x="0" y="${y(60)}" width="${W}" height="${y(50) - y(60)}" fill="var(--band)"/>
+      <line x1="0" x2="${W}" y1="${y(50)}" y2="${y(50)}" stroke="var(--accent)" stroke-width="1" vector-effect="non-scaling-stroke" stroke-dasharray="3 2"/>
+      <polyline points="${pts}" fill="none" stroke="var(--fg)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+      <circle cx="${x(h.length - 1)}" cy="${y(h[h.length - 1])}" r="2.2" fill="var(--fg)"/>
+    </svg>`;
+  }
+
+  // ---------- scanner ----------
+  function renderSummary() {
+    const mk = $("fMarket").value, ill = $("fIlliquid").checked;
+    const c = Object.fromEntries(TF.map(t => [t, { TAP: 0, BOUNCE: 0, RECLAIM: 0 }]));
+    for (const a of Object.values(DATA.assets)) {
+      if ((!ill && !a.liquid) || (mk && mkType(a) !== mk)) continue;
+      for (const t of TF) { const s = a.tf[t]?.signal; if (s) c[t][s]++; }
+    }
+    let h = `<div></div>${TF.map(t => `<div class="h">${TFN[t]}</div>`).join("")}`;
+    for (const s of SIG) {
+      h += `<div class="rowh">${SIGN[s]}</div>`;
+      for (const t of TF) {
+        const on = pick.tf === t && pick.sig === s;
+        h += `<button class="cell ${s}" data-tf="${t}" data-sig="${s}" aria-pressed="${on}"><b>${c[t][s]}</b><span>${on ? "showing" : mk === "CRYPTO" ? "coins" : "assets"}</span></button>`;
+      }
+    }
+    $("summary").innerHTML = h;
+  }
+
+  function filtered() {
+    const q = $("q").value.trim().toLowerCase(), mk = $("fMarket").value, multi = $("fMulti").checked, ill = $("fIlliquid").checked;
+    const out = [];
+    for (const [t, a] of Object.entries(DATA.assets)) {
+      if (!ill && !a.liquid) continue;
+      if (mk && mkType(a) !== mk) continue;
+      if (q && !t.toLowerCase().includes(q) && !String(a.name).toLowerCase().includes(q)) continue;
+      const sigs = TF.filter(f => a.tf[f] && a.tf[f].signal);
+      if (!sigs.length && !q) continue;
+      if (pick.tf && a.tf[pick.tf]?.signal !== pick.sig) continue;
+      if (multi && sigs.length < 2) continue;
+      out.push({ t, a, n: sigs.length });
+    }
+    const s = $("fSort").value;
+    const rs = (o, f) => o.a.tf[f]?.rsi ?? -1;
+    out.sort((x, y) => s === "az" ? x.t.localeCompare(y.t)
+      : s === "chg" ? (y.a.chg ?? 0) - (x.a.chg ?? 0)
+      : s.startsWith("rsi") ? rs(y, s[3]) - rs(x, s[3])
+      : y.n - x.n || x.t.localeCompare(y.t));
+    return out;
+  }
+
+  function renderList() {
+    const rows = filtered();
+    const mkv = $("fMarket").value, noun = mkv === "CRYPTO" ? "coin" : mkv ? "stock" : "asset";
+    $("count").textContent = `${rows.length} ${noun}${rows.length === 1 ? "" : "s"}${pick.tf ? ` · ${TFN[pick.tf]} ${SIGN[pick.sig]}` : " with a setup"}`;
+    if (!rows.length) { $("list").innerHTML = `<div class="empty">No stocks match these filters today.</div>`; $("more").hidden = true; return; }
+    $("list").innerHTML = rows.slice(0, shown).map(({ t, a }) => {
+      const cells = TF.map(f => {
+        const v = a.tf[f];
+        if (!v) return `<div class="tf"><div class="lab"><span>${f}</span></div><div class="v"><small>not enough history</small></div></div>`;
+        return `<div class="tf ${v.signal || ""}"><div class="lab"><span class="tfl" data-s="${f}">${TFN[f]}</span>${v.signal ? `<span class="sig">${SIGN[v.signal]}</span>` : ""}</div>
+          <div class="v">${v.rsi.toFixed(1)} <small>${arrow(v.rsi, v.prev)}</small></div>${spark(v.hist)}</div>`;
+      }).join("");
+      return `<div class="row"><div class="who"><div class="t">${esc(t)}</div><div class="n">${esc(a.name)}</div>
+          <div class="p num">${fmtPx(a.price, t)} <span class="${a.chg >= 0 ? "up" : "down"}">${a.chg >= 0 ? "+" : ""}${a.chg?.toFixed(2)}%</span></div></div>
+        ${cells}<div class="act"><button class="btn small" data-track="${esc(t)}">Track</button></div></div>`;
+    }).join("");
+    $("more").hidden = rows.length <= shown;
+  }
+
+  // ---------- positions ----------
+  function status(p) {
+    const a = DATA?.assets?.[p.ticker], v = a?.tf?.[p.tf];
+    if (!a || !v) return { code: "NA", label: "No data", rsi: null, a };
+    if (v.rsi >= 70) return { code: "TP", label: v.rsi > 75 ? "Take profit · overextended" : "Take profit", rsi: v.rsi, v, a };
+    if (v.rsi < 50) return { code: "SL", label: "Accept loss", rsi: v.rsi, v, a };
+    return { code: "HOLD", label: "Holding", rsi: v.rsi, v, a };
+  }
+
+  function renderPositions() {
+    const box = $("positions");
+    const alerts = positions.filter(p => ["TP", "SL"].includes(status(p).code)).length;
+    $("alertBadge").hidden = !alerts; $("alertBadge").textContent = alerts;
+    if (!positions.length) {
+      box.innerHTML = `<div class="empty">No positions yet. Tap <b>Track</b> on any stock in the scanner, or add one above.</div>`;
+    } else {
+      const order = { TP: 0, SL: 1, HOLD: 2, NA: 3 };
+      let tot = 0, val = 0;
+      for (const p of positions) { const px = DATA?.assets?.[p.ticker]?.price; if (px == null) continue;
+        tot += pnlGBP(p) || 0; val += toGBP(px * p.qty, p.ticker) || 0; }
+      const total = `<div class="totals"><div><div class="k">Open value</div><div class="num big">${gbp(val).slice(1)}</div></div>
+        <div><div class="k">Open profit / loss</div><div class="num big ${tot >= 0 ? "up" : "down"}">${gbp(tot)}</div></div>
+        <div><div class="k">GBP/USD</div><div class="num big">${fxRate()?.toFixed(4) ?? "–"}</div></div></div>`;
+      const list = positions.map((p, i) => ({ p, i, s: status(p) })).sort((x, y) => order[x.s.code] - order[y.s.code]);
+      box.innerHTML = total + list.map(({ p, i, s }) => {
+        const px = s.a?.price, raw = px != null ? (px - p.entry) * p.qty : null, pnl = pnlGBP(p), pct = px != null ? (px / p.entry - 1) * 100 : null;
+        const g = s.rsi == null ? "" : `<div class="gauge"><div class="ztp"></div><div class="z50"></div><div class="dot" style="left:${Math.max(0, Math.min(100, s.rsi))}%"></div></div>
+          <div class="gscale"><span style="left:0">0</span><span style="left:50%">50</span><span style="left:72.5%">70–75</span><span style="left:100%">100</span></div>`;
+        return `<div class="pos ${s.code}"><div class="stripe"></div><div class="body">
+          <div><div class="who"><div class="t">${esc(p.ticker)}</div><div class="n">${esc(s.a?.name || "Not in today's scan")}</div></div>
+            <span class="pill ${s.code}">${s.label}</span></div>
+          <div><div class="k">Entry → now</div><div class="num">${fmtPx(p.entry, p.ticker)} → ${fmtPx(px, p.ticker)}</div>
+            <div class="num ${raw >= 0 ? "up" : "down"}">${gbp(pnl)}${pct != null ? ` (${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%)` : ""}</div>
+            ${raw != null && needsFx(p.ticker) ? `<div class="k">${usd(raw)} · bought at $${(p.fx || fxRate())?.toFixed(4)}/£</div>` : ""}
+            <div class="k" style="margin-top:2px">${p.qty} ${isCrypto(p.ticker) ? "coins" : "shares"}${p.date ? ` · since ${esc(p.date)}` : ""}</div></div>
+          <div class="gcol"><div class="k">${TFN[p.tf]} RSI ${s.rsi != null ? `<span class="num" style="color:var(--fg);font-size:.85rem">${s.rsi.toFixed(1)} ${arrow(s.rsi, s.v?.prev)}</span>` : ""}</div>${g}</div>
+          <div class="del" data-i="${i}"><button class="btn small" data-edit="${i}">Edit</button><button class="btn small" data-rm="${i}">Close</button></div>
+        </div></div>`;
+      }).join("");
+    }
+    $("ioText").value = JSON.stringify(positions, null, 1);
+  }
+
+  function fillForm(p) {
+    $("pTicker").value = p.ticker || ""; $("pTf").value = p.tf || "D";
+    $("pEntry").value = p.entry ?? ""; $("pQty").value = p.qty ?? ""; $("pDate").value = p.date || "";
+    $("pFx").value = p.fx ?? (p.ticker && needsFx(p.ticker) ? fxRate() ?? "" : ""); syncFx();
+  }
+  function resetForm() { editing = null; fillForm({}); $("formTitle").textContent = "Add a position"; $("pSave").textContent = "Track"; $("pCancel").hidden = true; }
+
+  $("posForm").addEventListener("submit", e => {
+    e.preventDefault();
+    const p = { ticker: $("pTicker").value.trim().toUpperCase(), tf: $("pTf").value, entry: +$("pEntry").value, qty: +$("pQty").value, date: $("pDate").value };
+    if (needsFx(p.ticker)) p.fx = +$("pFx").value || fxRate();
+    if (!p.ticker || !(p.entry > 0) || !(p.qty > 0)) return;
+    if (editing != null) positions[editing] = p; else positions.push(p);
+    savePos(positions); resetForm(); renderPositions();
+  });
+  $("pCancel").onclick = resetForm;
+  function syncFx() { $("fxWrap").hidden = !needsFx($("pTicker").value.trim().toUpperCase()); }
+  $("pTicker").addEventListener("input", syncFx);
+
+  $("positions").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.edit != null) {
+      editing = +b.dataset.edit; fillForm(positions[editing]);
+      $("formTitle").textContent = `Edit ${positions[editing].ticker}`; $("pSave").textContent = "Save"; $("pCancel").hidden = false;
+      $("posForm").scrollIntoView({ behavior: "smooth", block: "center" });
+    } else if (b.dataset.rm != null) {
+      const wrap = b.parentElement;
+      wrap.innerHTML = `<span class="meta">Remove this position?</span><button class="btn small" data-yes="${b.dataset.rm}">Remove</button><button class="btn small ghost" data-no>Keep</button>`;
+    } else if (b.dataset.yes != null) {
+      positions.splice(+b.dataset.yes, 1); savePos(positions); resetForm(); renderPositions();
+    } else if (b.dataset.no != null) renderPositions();
+  });
+
+  $("copyBtn").onclick = async () => {
+    const t = $("ioText");
+    try { await navigator.clipboard.writeText(t.value); $("ioMsg").textContent = "Copied"; }
+    catch { t.select(); $("ioMsg").textContent = "Selected. Copy it with your keyboard or long-press."; }
+  };
+  $("importBtn").onclick = () => {
+    try {
+      const arr = JSON.parse($("ioText").value);
+      if (!Array.isArray(arr) || arr.some(p => !p.ticker || !p.entry || !p.qty || !TF.includes(p.tf))) throw 0;
+      positions = arr; savePos(positions); renderPositions(); $("ioMsg").textContent = `Imported ${arr.length} position${arr.length === 1 ? "" : "s"}`;
+    } catch { $("ioMsg").textContent = "That text isn't a valid positions backup. Paste the whole thing, including the [ ] brackets."; }
+  };
+
+  // ---------- washouts ----------
+  let wKind = "stocks";
+  const pc = v => v == null ? "–" : `<span class="${v >= 0 ? "up" : "down"}">${v >= 0 ? "+" : ""}${v}%</span>`;
+  const dfmt = d => new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
+  function mChart(m, label) {
+    const v = m.hist, dts = m.hist_dates; if (!v?.length) return "";
+    const peak = Math.max(m.event * 2, ...v), step = peak <= 50 ? 10 : 25;
+    const top = Math.min(100, Math.ceil(peak / step) * step);
+    const ticks = []; for (let t = 0; t <= top; t += step) ticks.push(t);
+    const W = Math.max(300, Math.round($("mChart").clientWidth || 640)), H = W < 500 ? 180 : 200, L = 34, R = 8, T = 10, B = 22, iw = W - L - R, ih = H - T - B;
+    const x = i => L + i / (v.length - 1) * iw, y = p => T + ih - Math.min(top, p) / top * ih;
+    let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${label}">`;
+    for (const g of ticks) s += `<line x1="${L}" x2="${W - R}" y1="${y(g)}" y2="${y(g)}" stroke="var(--line)" stroke-width="1"/><text x="${L - 6}" y="${y(g) + 3}" text-anchor="end">${g}%</text>`;
+    let prevYr = dts[0].slice(0, 4);
+    dts.forEach((d, i) => { const yr = d.slice(0, 4); if (yr !== prevYr) { prevYr = yr;
+      if (+yr % (W < 500 ? 2 : 1) === 0) s += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${yr}</text>`; } });
+    s += `<line x1="${L}" x2="${W - R}" y1="${y(m.stress)}" y2="${y(m.stress)}" stroke="var(--warn)" stroke-dasharray="4 3"/>`;
+    s += `<line x1="${L}" x2="${W - R}" y1="${y(m.event)}" y2="${y(m.event)}" stroke="var(--bad)" stroke-dasharray="4 3"/>`;
+    const pts = v.map((p, i) => `${x(i).toFixed(1)},${y(p).toFixed(1)}`).join(" ");
+    s += `<polygon points="${L},${y(0)} ${pts} ${x(v.length - 1)},${y(0)}" fill="var(--band)"/>`;
+    s += `<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="1.4" stroke-linejoin="round"/>`;
+    for (const e of m.events) { const i = dts.findIndex(d => d >= e.date); if (i < 0) continue;
+      s += `<circle cx="${x(i)}" cy="${y(v[i])}" r="3.5" fill="var(--bad)" stroke="var(--surface)" stroke-width="1.5"><title>${dfmt(e.date)}: ${e.peak}%</title></circle>`; }
+    s += `<circle cx="${x(v.length - 1)}" cy="${y(v[v.length - 1])}" r="3.5" fill="var(--fg)"/>`;
+    return s + "</svg>";
+  }
+
+  function drawChart() {
+    const c = wKind === "crypto", m = c ? DATA.crypto_market : DATA.market;
+    $("mChart").innerHTML = m ? mChart(m, c ? "Median liquidation wick across coins" : "Share of stocks oversold") : "";
+  }
+
+  function washRows(kind) {
+    return Object.entries(DATA.assets).filter(([, a]) => a.wash && (kind === "crypto") === (a.type === "crypto") && (a.liquid || $("fIlliquid").checked))
+      .sort((x, y) => (y[1].wash.status === "REVERSAL") - (x[1].wash.status === "REVERSAL") || x[1].wash.drop - y[1].wash.drop);
+  }
+
+  function renderWash() {
+    const c = wKind === "crypto", m = c ? DATA.crypto_market : DATA.market, w = DATA.settings.wash || {};
+    $("wStocks").setAttribute("aria-pressed", !c); $("wCrypto").setAttribute("aria-pressed", c);
+    const revAll = washRows("stocks").concat(washRows("crypto")).filter(([, a]) => a.wash.status === "REVERSAL").length;
+    $("washBadge").hidden = !revAll; $("washBadge").textContent = revAll;
+
+    if (!m) {
+      $("mNow").textContent = "–"; $("mState").className = "pill NA"; $("mState").textContent = "No data";
+      $("mSub").textContent = c ? "Crypto data didn't load on the last scan." : ""; $("mLev").hidden = true;
+      $("mChart").innerHTML = ""; $("evTable").innerHTML = "";
+    } else {
+      const lvl = c ? m.worst7 : m.now;
+      const st = lvl >= m.event ? ["EVENT", c ? "Liquidation cascade" : "Liquidation event"] : lvl >= m.stress ? ["STRESS", "Stressed"] : ["CALM", "Calm"];
+      $("mState").className = `pill ${st[0]}`; $("mState").textContent = st[1];
+      if (c) {
+        $("mLabel").textContent = "Median liquidation wick, last daily candle";
+        $("mNow").textContent = `${m.now}%`;
+        $("mSub").textContent = `Worst day in the last week ${m.worst7}% · ${m.oversold}% of ${m.stocks} coins with RSI under 30`;
+        const L = m.leverage || {};
+        $("mLev").hidden = false;
+        $("mLev").innerHTML = `<span>Open interest, 3 days: <b>${L.oi3 == null ? `building history (${L.days ?? 0}/3 days)` : pc(L.oi3)}</b></span>
+          <span>Coins paying negative funding: <b>${L.neg_funding ?? "–"}%</b></span>`;
+        $("mNote").textContent = `How far the typical coin's low fell below the previous close, weekly worst day since 2019. Above ${m.event}% on the same day across most coins is a liquidation cascade. Leverage figures come from Hyperliquid perps.`;
+        $("evHead").textContent = "Past liquidation cascades";
+        $("evNote").textContent = "What Bitcoin did after each cascade.";
+        $("evTable").innerHTML = `<tr><th>Date</th><th>Median wick</th><th>% oversold</th><th>BTC wick</th><th>BTC from high</th><th>+1 month</th><th>+3 months</th><th>+6 months</th></tr>` +
+          (m.events.length ? m.events.map(e => `<tr><td>${dfmt(e.date)}</td><td>−${e.peak}%</td><td>${e.oversold ?? "–"}%</td><td>${pc(e.btc_wick)}</td><td>${pc(e.btc_dd)}</td><td>${pc(e.m1)}</td><td>${pc(e.m3)}</td><td>${pc(e.m6)}</td></tr>`).join("")
+            : `<tr><td colspan="8">No cascades in the data yet.</td></tr>`);
+      } else {
+        $("mLabel").textContent = "Stocks with daily RSI under 30";
+        $("mNow").textContent = `${m.now}%`; $("mLev").hidden = true;
+        $("mSub").textContent = `${m.stocks} stocks · VIX ${m.vix ?? "–"} · stressed above ${m.stress}%, event above ${m.event}%`;
+        $("mNote").textContent = "Weekly peak of the share of stocks deeply oversold, over 10 years. Spikes above the red line are market-wide liquidation events.";
+        $("evHead").textContent = "Past market washouts";
+        $("evNote").textContent = "What the S&P 500 did after each peak. This is how good these entries have been historically.";
+        $("evTable").innerHTML = `<tr><th>Peak date</th><th>% oversold</th><th>VIX</th><th>S&amp;P fall</th><th>+1 month</th><th>+3 months</th><th>+6 months</th></tr>` +
+          (m.events.length ? m.events.map(e => `<tr><td>${dfmt(e.date)}</td><td>${e.peak}%</td><td>${e.vix ?? "–"}</td><td>${pc(e.spx_dd)}</td><td>${pc(e.m1)}</td><td>${pc(e.m3)}</td><td>${pc(e.m6)}</td></tr>`).join("")
+            : `<tr><td colspan="7">No market-wide events in the data yet.</td></tr>`);
+      }
+      if (!$("viewWash").hidden) drawChart();
+    }
+
+    const drop = c ? (w.crypto_drop ?? -25) : w.drop;
+    $("wHead").textContent = c ? "Coins flushing now" : "Stocks flushing now";
+    $("washRule").textContent = `Fell ${Math.abs(drop)}%+ from the 20-day high, daily RSI hit ${w.rsi} or lower, and volume spiked ${w.vol}× normal, all within the last ${w.window} days. "Reversal trigger" means the latest candle printed a turn signal${c ? " or open interest has been flushed" : ""}.`;
+    const rows = washRows(wKind);
+    $("washList").innerHTML = rows.length ? rows.map(([t, a]) => { const x = a.wash, d = a.deriv;
+      const lev = c ? `<div class="stat"><div class="k">Funding/yr</div><div class="v ${d?.fund_apr < 0 ? "down" : ""}">${d ? `${d.fund_apr}%` : "–"}</div></div>
+        <div class="stat"><div class="k">OI 3 days</div><div class="v">${d?.oi3 != null ? pc(d.oi3) : "–"}</div></div>` : "";
+      return `<div class="wrow ${c ? "c" : ""}"><div class="who"><div class="t">${esc(t)} <span class="pill ${x.status}">${x.status === "REVERSAL" ? "Reversal trigger" : "Still flushing"}</span></div>
+          <div class="n">${esc(a.name)}</div><div class="p num">${fmtPx(a.price, t)} <span class="${a.chg >= 0 ? "up" : "down"}">${a.chg >= 0 ? "+" : ""}${a.chg?.toFixed(2)}%</span></div></div>
+        <div class="stat"><div class="k">Fall</div><div class="v down">${x.drop}%</div></div>
+        <div class="stat"><div class="k">RSI low</div><div class="v">${x.rsi_low}</div></div>
+        <div class="stat"><div class="k">Volume</div><div class="v">${x.volx}×</div></div>
+        <div class="stat"><div class="k">Off low</div><div class="v up">+${x.off_low}%</div></div>${lev}
+        <div class="act"><button class="btn small" data-track="${esc(t)}" data-tf="D">Track</button></div>
+        ${x.triggers.length ? `<div class="trig">${x.triggers.map(esc).join(" · ")}</div>` : ""}</div>`; }).join("")
+      : `<div class="empty">No ${c ? "coins" : "stocks"} are in a capitulation flush right now. They show up here when a sharp, high-volume sell-off pushes daily RSI to ${w.rsi} or below.</div>`;
+  }
+  $("wStocks").onclick = () => { wKind = "stocks"; saveUI(); renderWash(); };
+  $("wCrypto").onclick = () => { wKind = "crypto"; saveUI(); renderWash(); };
+  function saveUI() { try { localStorage.setItem("rsi50.wkind", wKind); } catch {} }
+
+  // ---------- tabs & events ----------
+  function tab(which) {
+    for (const [k, b, v] of [["scan", "tabScan", "viewScan"], ["wash", "tabWash", "viewWash"], ["pos", "tabPos", "viewPos"]]) {
+      $(b).setAttribute("aria-selected", which === k); $(v).hidden = which !== k; }
+    if (which === "wash" && DATA) drawChart();
+    try { localStorage.setItem("rsi50.tab", which); } catch {}
+  }
+  $("tabScan").onclick = () => tab("scan"); $("tabPos").onclick = () => tab("pos"); $("tabWash").onclick = () => tab("wash");
+
+  $("summary").addEventListener("click", e => {
+    const c = e.target.closest(".cell"); if (!c) return;
+    const same = pick.tf === c.dataset.tf && pick.sig === c.dataset.sig;
+    pick = same ? { tf: null, sig: null } : { tf: c.dataset.tf, sig: c.dataset.sig };
+    shown = 150; renderSummary(); renderList();
+  });
+  ["q", "fMarket", "fSort", "fMulti", "fIlliquid"].forEach(id => $(id).addEventListener("input", () => { shown = 150; renderSummary(); renderList(); }));
+  $("fIlliquid").addEventListener("input", renderWash);
+  let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => DATA && !$("viewWash").hidden && drawChart(), 150); });
+  $("more").onclick = () => { shown += 150; renderList(); };
+  const onTrack = e => {
+    const b = e.target.closest("[data-track]"); if (!b) return;
+    const t = b.dataset.track, a = DATA.assets[t];
+    const tf = b.dataset.tf || pick.tf || TF.find(f => a.tf[f]?.signal) || "D";
+    resetForm(); fillForm({ ticker: t, tf, entry: a.price, date: new Date().toISOString().slice(0, 10) });
+    tab("pos"); $("pQty").focus();
+  };
+  $("list").addEventListener("click", onTrack); $("washList").addEventListener("click", onTrack);
+
+  // ---------- boot ----------
+  function boot(d) {
+    DATA = d;
+    if (!positions.length && window.EXAMPLE_POSITIONS) positions = window.EXAMPLE_POSITIONS;
+    const when = new Date(d.generated);
+    $("meta").textContent = `Last scan ${when.toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · ${Object.values(d.assets).filter(a => a.type !== "crypto").length.toLocaleString()} stocks, ${Object.values(d.assets).filter(a => a.type === "crypto").length} coins`;
+    $("demoTag").hidden = !d.demo;
+    $("tickers").innerHTML = Object.keys(d.assets).sort().map(t => `<option value="${esc(t)}">`).join("");
+    try { wKind = localStorage.getItem("rsi50.wkind") || "stocks"; } catch {}
+    renderSummary(); renderList(); renderPositions(); renderWash();
+    let t = "scan"; try { t = localStorage.getItem("rsi50.tab") || "scan"; } catch {}
+    tab(t);
+  }
+  if (window.EMBEDDED_DATA) boot(window.EMBEDDED_DATA);
+  else fetch("data.json?" + Date.now()).then(r => r.json()).then(boot)
+    .catch(() => { $("meta").textContent = "Couldn't load data.json. Run the scanner first."; });
+})();
+</script>
+</body>
+</html>
